@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Riposte Call Report</title>
+<link rel="stylesheet" href="/static/style.css?v=3">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="bar">
+  <div class="logo">Ri<span>poste</span></div><div class="role">Call report</div><div class="spacer"></div>
+</header>
+<main class="stack" style="max-width:860px">
+  <div class="panel no-print">
+    <div class="row" style="justify-content:space-between">
+      <div><div class="big">Review, then submit your complaint</div>
+        <div class="small muted">Check the facts below. Save as PDF and attach it at cybercrime.gov.in, or give it to your bank or the police.</div></div>
+      <div class="row">
+        <button class="primary" id="print">🖨️ Save as PDF</button>
+        <button id="dl">⬇️ Download text</button>
+        <button id="copy">📋 Copy complaint</button>
+      </div>
+    </div>
+    <div class="row small" style="margin-top:12px">
+      <a class="btn" href="https://cybercrime.gov.in" target="_blank" rel="noopener">cybercrime.gov.in</a>
+      <a class="btn" href="https://sancharsaathi.gov.in" target="_blank" rel="noopener">Report number (Chakshu)</a>
+      <a class="btn" href="tel:1930">Call 1930</a>
+    </div>
+  </div>
+  <div class="panel"><h2>Summary and next steps</h2><div id="summary">Preparing…</div><p class="small muted" id="by"></p></div>
+  <div class="panel"><h2>Call record</h2><table id="facts" style="width:100%;border-collapse:collapse;font-size:15px"></table></div>
+  <div class="panel"><h2>Evidence (exact words and verified facts)</h2><ul id="evidence" style="margin:0;padding-left:18px"></ul></div>
+  <div class="panel"><h2>Full transcript</h2><div id="transcript" class="small"></div></div>
+</main>
+<script type="module">
+import { $, h, rupees, SIGNAL_TEXT } from '/static/app.js';
+const id = new URLSearchParams(location.search).get('call');
+let complaint = '', plain = '';
+
+function renderMd(md) {
+  const box = h('div'); let list = null;
+  for (const raw of md.split('\n')) {
+    const line = raw.trim();
+    if (!line) { list = null; continue; }
+    if (line.startsWith('## ')) { list = null; box.append(h('h3', { style: 'margin:14px 0 4px' }, line.slice(3))); continue; }
+    const m = line.match(/^(\d+\.|[-*])\s+(.*)$/);
+    if (m) { if (!list) { list = h(m[1].endsWith('.') ? 'ol' : 'ul', { style: 'margin:4px 0;padding-left:20px' }); box.append(list); } list.append(h('li', {}, m[2].replace(/\*\*/g, ''))); continue; }
+    list = null; box.append(h('p', { style: 'margin:4px 0' }, line.replace(/\*\*/g, '')));
+  }
+  return box;
+}
+
+async function load() {
+  if (!id) { $('#summary').textContent = 'No call selected.'; return; }
+  const r = await fetch(`/api/case/${id}/report`, { method: 'POST' }).then(r => r.json());
+  $('#summary').replaceChildren(renderMd(r.report || ''));
+  $('#by').textContent = 'Written by ' + r.by;
+  const c = r.record;
+  const rows = [['Date and time', `${c.started}${c.ended ? ' to ' + c.ended.split(', ')[1] : ''}`],
+    ['Caller number', c.caller + (c.caller_name ? ` (${c.caller_name})` : ' (not in contacts)')],
+    ['Risk rating', c.risk.toUpperCase()], ['Scam pattern', c.patterns.join('; ') || 'none detected'],
+    ['Payment details the caller gave', c.details_given.map(d => `${d.type.toUpperCase()} ${d.value}`).join(', ') || 'none'],
+    ['Payments', c.payments.map(p => `${rupees(p.amount)} to ${p.payee}: ${p.status}`).join('; ') || 'none'],
+    ['Reference', c.call_id]];
+  $('#facts').replaceChildren(...rows.map(([k, v]) => h('tr', {}, h('th', { style: 'text-align:left;padding:8px 10px 8px 0;width:38%;color:var(--muted);font-weight:600' }, k), h('td', { style: 'padding:8px 0' }, v))));
+  $('#evidence').replaceChildren(...c.evidence.map(e => h('li', { style: 'margin:6px 0' }, h('b', {}, SIGNAL_TEXT[e.type] || e.type), ': ', `“${e.evidence}”`)));
+  $('#transcript').replaceChildren(...(c.transcript.length ? c.transcript.map(t => h('p', { style: 'margin:4px 0' }, t)) : [h('p', { class: 'muted' }, 'No transcript recorded.')]));
+  const md = r.report || '';
+  complaint = (md.split('## Complaint draft')[1] || '').trim();
+  plain = `RIPOSTE CALL REPORT\n\n${md}\n\nCALL RECORD\n${rows.map(([k, v]) => `${k}: ${v}`).join('\n')}\n\nEVIDENCE\n${c.evidence.map(e => `- ${SIGNAL_TEXT[e.type] || e.type}: "${e.evidence}"`).join('\n')}\n\nTRANSCRIPT\n${c.transcript.join('\n')}\n`;
+}
+$('#print').onclick = () => window.print();
+$('#dl').onclick = () => {
+  const a = h('a', { href: URL.createObjectURL(new Blob([plain], { type: 'text/plain' })), download: `riposte-report-${id}.txt` });
+  document.body.append(a); a.click(); a.remove();
+};
+$('#copy').onclick = async () => { try { await navigator.clipboard.writeText(complaint || plain); $('#copy').textContent = '✓ Copied'; } catch { alert(complaint || plain); } };
+load();
+</script>
+</body>
+</html>

@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Riposte: scam call guardian</title>
+<link rel="stylesheet" href="/static/style.css?v=3">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="bar"><div class="logo">Ri<span>poste</span></div><div class="role">Scam call guardian</div></header>
+<main>
+  <section class="panel" style="padding:24px">
+    <div class="hero">When a scammer calls,<br>one person is protected and one scam account gets burned.</div>
+    <p class="muted" style="font-size:18px;max-width:760px">Riposte listens to a call on speaker, understands what the caller wants with Gemini, has your bank hold risky payments, alerts your trusted contact, checks with the real family member's phone, and can hand the call to an AI decoy that pulls out the scammer's payment details for the bank.</p>
+  </section>
+  <section class="panel" style="margin-top:16px">
+    <div class="row" style="justify-content:space-between">
+      <div><div class="big" id="setupTitle">Set up Riposte</div><div class="muted small" id="setupSub">Your name, your number, your trusted contacts &mdash; under a minute. This step is a mock of what a real mobile app would collect automatically from your phone; it just shows what's gathered and what's optional.</div></div>
+      <a class="btn primary" href="/setup" id="setupBtn">Get started →</a>
+    </div>
+  </section>
+  <section class="panel" style="margin-top:16px">
+    <div class="row" style="justify-content:space-between">
+      <div><div class="big" id="linksTitle">Or skip to a private demo</div><div class="muted small" id="linksSub">Get links for all three screens, pre-filled with Ramesh &amp; Priya, that only you can see.</div></div>
+      <button class="primary" id="mk">Create my demo</button>
+    </div>
+    <div id="links" class="small" style="margin-top:10px"></div>
+  </section>
+  <div class="grid" style="margin-top:16px">
+    <a class="panel" href="/listen" style="text-decoration:none;color:inherit"><div class="big">🎙️ Listener</div><p class="muted">Runs on a laptop or tablet next to the phone on speaker. Live risk, silent coaching, the AI decoy.</p></a>
+    <a class="panel" href="/phone" style="text-decoration:none;color:inherit"><div class="big">📱 Ramesh's phone</div><p class="muted">Payments started during a risky call are held, OTPs are covered, saved contacts, one-tap kill switch.</p></a>
+    <a class="panel" href="/family" style="text-decoration:none;color:inherit"><div class="big">👨‍👩‍👧 Priya's phone</div><p class="muted">Trusted contact: live alerts with the evidence, one-tap requests to Papa, automatic "is it really me?" check.</p></a>
+    <a class="panel" href="/vision" style="text-decoration:none;color:inherit"><div class="big">💭 Vision: on-phone</div><p class="muted">Concept mockup, not live: how Riposte feels as an in-call overlay on your own phone, once it can join the call itself.</p></a>
+  </div>
+  <section class="panel" style="margin-top:16px">
+    <h2>Try the demo in 60 seconds</h2>
+    <ol>
+      <li>Open <b>Ramesh's phone</b> and <b>Priya's phone</b> in other tabs or devices.</li>
+      <li>On the <b>Listener</b>, press <b>Replay the real ICICI scam call</b> (or start listening and play a call on speaker).</li>
+      <li>Watch the risk rise. When it says <b>SCAM ALERT</b>, try paying ₹4,999 on Ramesh's phone. It gets held.</li>
+      <li>Priya gets the alert and asks Papa to cancel; Ramesh cancels it. Then hand the call to the AI decoy, end the call and open the report.</li>
+    </ol>
+    <p class="small muted">Built for the Google Cloud AI Builder Cup 2026 · Gemini Transcribe Live · Gemini Flash · Gemini Live · Cloud Run. Based on a real scam call our team received on 14 Oct 2026.</p>
+  </section>
+</main>
+<script type="module">
+import { $, h, api } from '/static/app.js';
+
+function renderLinks(circle, highlight) {
+  const box = $('#links'); box.replaceChildren();
+  for (const [p, n] of [['listen', '🎙️ Listener'], ['phone', "📱 Protected person's phone"], ['family', "👨‍👩‍👧 Family member's phone"]]) {
+    const url = `${location.origin}/${p}?circle=${circle}`;
+    box.append(h('div', { style: `margin:4px 0${highlight === p ? ';font-weight:700' : ''}` },
+      h('a', { href: url, target: '_blank' }, n), highlight === p ? ' ← this one is you' : '', ' ', h('span', { class: 'mono muted' }, url)));
+  }
+}
+
+$('#mk').onclick = async () => { const { circle } = await api('/api/circles', {}); renderLinks(circle); };
+
+// Coming back from /setup: show the demo links for the circle just created, instead of dropping
+// straight into a full functional screen (setup is a mock of what a mobile app would collect; the
+// screens below are the actual demo).
+const params = new URLSearchParams(location.search);
+const setupCircle = params.get('circle'), role = params.get('role');
+if (setupCircle) {
+  $('#setupTitle').textContent = "You're set up"; $('#setupSub').textContent = "Your details are saved for this demo circle.";
+  $('#setupBtn').textContent = 'Set up again'; $('#setupBtn').classList.remove('primary');
+  $('#linksTitle').textContent = 'Your demo links'; $('#linksSub').textContent = "Open these to run the demo. Nothing here processes a real payment or sends a real SMS — it's a simulation of what your bank and phone would do during a risky call.";
+  $('#mk').textContent = 'Create another demo instead';
+  renderLinks(setupCircle, role === 'self' ? 'phone' : role === 'family' ? 'family' : null);
+}
+</script>
+</body>
+</html>

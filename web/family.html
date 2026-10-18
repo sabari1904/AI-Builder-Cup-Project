@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Riposte Family</title>
+<link rel="stylesheet" href="/static/style.css?v=3">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<div class="device-shell"><div class="device-frame">
+<div class="device-notch"></div>
+<div class="device-statusbar"><span class="device-clock">9:41</span><span>📶 🔋</span></div>
+<div class="device-scroll">
+<header class="bar">
+  <div class="logo">Ri<span>poste</span></div><div class="role" id="roleLabel">Trusted contact</div>
+  <div class="spacer"></div><span class="dot" id="dot"></span>
+</header>
+<main class="phone stack">
+
+  <div class="panel hidden" id="whoPanel">
+    <h2>Who are you?</h2>
+    <p class="small muted" style="margin-top:0">Pick your name so Riposte knows who's checking this screen.</p>
+    <div id="whoList" class="stack" style="gap:8px"></div>
+  </div>
+
+  <div id="mainPanels" class="hidden stack" style="gap:18px">
+  <div class="panel">
+    <h2><span id="protName">Papa</span>'s protection</h2>
+    <div id="status" class="big">All calm</div>
+    <div id="statusSub" class="small muted">No call in progress.</div>
+  </div>
+
+  <div class="panel hidden" id="actPanel">
+    <h2>What you can do now</h2>
+    <div class="stack" style="gap:12px">
+      <a class="btn primary" id="callPapa" href="tel:">📞 Call <span class="who">Papa</span> now</a>
+      <button id="askCancel" disabled>✋ Ask <span class="who">Papa</span> to cancel the payment</button>
+      <button id="askCall">☎️ Ask <span class="who">Papa</span> to hang up and call me</button>
+      <button id="askFreeze">🧊 Ask <span class="who">Papa</span> to freeze their cards & UPI</button>
+      <a class="btn" href="tel:1930">🚨 Report to 1930 (cyber crime helpline)</a>
+    </div>
+    <p class="small muted" style="margin-bottom:0"><span class="who2">Papa</span> is the only one who can stop a payment on their own account &mdash; so can their bank. Your requests appear on their phone and they decide. If money already left, call 1930 and their bank's fraud line straight away.</p>
+    <div id="reqNote" class="small" style="margin-top:8px"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Alerts</h2>
+    <div class="feed" id="feed"><p class="muted">No alerts.</p></div>
+  </div>
+
+  <div class="panel">
+    <h2>My phone</h2>
+    <label class="row" style="color:var(--ink);font-size:16px;gap:12px;margin:0">
+      <input type="checkbox" id="onCall"> I'm on a call with <span class="who">Papa</span> right now
+    </label>
+    <p class="small muted" style="margin-bottom:0">When someone claiming to be you calls <span class="who2">Papa</span>, Riposte asks your phone if it's really you. The real app answers automatically from your phone's call state; here you tick it.</p>
+    <div id="pingNote" class="small"></div>
+  </div>
+  </div>
+</main>
+</div><!-- /device-scroll -->
+<div class="device-home-indicator"></div>
+</div></div><!-- /device-frame, /device-shell -->
+<script type="module">
+import { $, h, api, stream, rupees, ago, CIRCLE, LEVEL_TEXT, SIGNAL_TEXT } from '/static/app.js';
+let me = null, heldPay = null, protectedName = 'Papa';
+
+function setWho(name) {
+  protectedName = name || 'Papa';
+  $('#protName').textContent = protectedName;
+  document.querySelectorAll('.who').forEach(el => el.textContent = protectedName);
+  document.querySelectorAll('.who2').forEach(el => el.textContent = protectedName);
+  $('#roleLabel').textContent = me ? `${me.name} · trusted contact` : 'Trusted contact';
+}
+
+function feedAdd(el) { const f = $('#feed'); if (f.firstChild && f.firstChild.tagName === 'P') f.replaceChildren(); f.prepend(el); }
+async function heartbeat(extra = {}) { if (me) try { await api('/api/family/presence', { circle: CIRCLE, member_id: me.id, ...extra }); } catch {} }
+$('#onCall').onchange = async () => { await heartbeat({ on_call_with_protected: $('#onCall').checked }); $('#pingNote').textContent = $('#onCall').checked ? `✓ ${protectedName}’s screen now shows the call is really you.` : `${protectedName}’s screen now shows you are not on a call with them.`; };
+setInterval(heartbeat, 10000);
+
+const memberKey = `riposte-member-${CIRCLE}`;
+function pickMember(members) {
+  let id = null; try { id = localStorage.getItem(memberKey); } catch {}
+  const stored = id && members.find(m => m.id === id);
+  if (stored) return stored;
+  if (members.length === 1) return members[0];   // the one-click seeded demo: no choice to make
+  return null;
+}
+function showWhoChooser(members) {
+  $('#whoPanel').classList.remove('hidden'); $('#mainPanels').classList.add('hidden');
+  const box = $('#whoList'); box.replaceChildren();
+  for (const m of members) box.append(h('button', { style: 'width:100%', onclick: () => { try { localStorage.setItem(memberKey, m.id); } catch {} selectMember(m); } }, `${m.name} (${m.relation})`));
+  if (!members.length) box.append(h('p', { class: 'muted small' }, 'No trusted contacts set up yet on this circle.'));
+}
+function selectMember(m) {
+  me = m;
+  $('#whoPanel').classList.add('hidden'); $('#mainPanels').classList.remove('hidden');
+  $('#onCall').checked = !!me?.on_call_with_protected; heartbeat();
+  setWho(protectedName);
+}
+
+async function ask(kind) {
+  try {
+    await api('/api/family/request', { circle: CIRCLE, kind, by: me?.name || 'A trusted contact', payment_id: heldPay });
+    $('#reqNote').textContent = `✓ Sent to ${protectedName}'s phone. They will see it right away.`;
+  } catch (e) { $('#reqNote').textContent = 'Could not send: ' + e.message; }
+}
+$('#askCancel').onclick = () => ask('stop_payment');
+$('#askCall').onclick = () => ask('call_me');
+$('#askFreeze').onclick = () => ask('freeze');
+
+const payEls = {};
+function paymentCard(p) {
+  if (p.status === 'held') heldPay = p.id;
+  else if (p.id === heldPay) heldPay = null;
+  const label = { held: `Payment on hold by ${protectedName}'s bank`, blocked: 'Payment cancelled', released: 'Payment released', completed: 'Payment sent', frozen: 'Account frozen' }[p.status] || p.status;
+  const el = h('div', { class: 'item' + (p.status === 'held' ? ' urgent' : '') },
+    h('div', { class: 'top' }, h('b', {}, label), h('span', { class: 'small muted' }, ago(p.created_at))),
+    h('div', { class: 'big' }, `${rupees(p.amount)} → `, h('span', { class: 'mono', style: 'font-size:15px' }, p.payee)),
+    h('p', { class: 'small muted', style: 'margin:6px 0 0' }, p.reason));
+  if (payEls[p.id]) payEls[p.id].replaceWith(el); else feedAdd(el);
+  payEls[p.id] = el;
+  $('#askCancel').disabled = !heldPay;
+}
+
+stream((ev) => {
+  if (ev.type === 'hello') {
+    setWho(ev.snapshot.circle.protected_name);
+    $('#callPapa').href = ev.snapshot.circle.protected_number ? `tel:${ev.snapshot.circle.protected_number}` : 'tel:';
+    const chosen = pickMember(ev.snapshot.circle.members);
+    if (chosen) selectMember(chosen); else showWhoChooser(ev.snapshot.circle.members);
+    ev.snapshot.payments.filter(p => p.status === 'held').forEach(paymentCard);
+  }
+  if (ev.type === 'profile') { setWho(ev.protected_name); $('#callPapa').href = ev.protected_number ? `tel:${ev.protected_number}` : 'tel:'; }
+  if (ev.type === 'presence_ping' && me && ev.member_id === me.id) {
+    const on = $('#onCall').checked;
+    $('#pingNote').textContent = `Riposte asked “Are you calling ${protectedName}?” and your phone answered: ${on ? 'Yes' : 'No'}`;
+    api('/api/family/presence', { circle: CIRCLE, member_id: me.id, ping_id: ev.ping_id, on_call: on });
+  }
+  if (ev.type === 'family_alert') {
+    $('#actPanel').classList.remove('hidden');
+    const reasons = (ev.reasons || []).map(r => h('li', {}, SIGNAL_TEXT[r.type] || r.type, h('div', { class: 'muted small' }, `“${r.evidence}”`)));
+    feedAdd(h('div', { class: 'item' + (ev.urgent ? ' urgent' : '') },
+      h('div', { class: 'top' }, h('b', {}, ev.urgent ? `🚨 ${protectedName} may be talking to a scammer` : `${protectedName} is on a suspicious call`), h('span', { class: 'pill lv-' + ev.level }, LEVEL_TEXT[ev.level])),
+      h('div', { class: 'small', style: 'margin-top:6px' }, `Caller: ${ev.caller || 'unknown number'}${ev.claims?.claimed_identity ? ' · claims to be ' + ev.claims.claimed_identity : ''}`),
+      h('ul', { class: 'small', style: 'margin:8px 0;padding-left:18px' }, ...reasons),
+      h('p', { class: 'small muted', style: 'margin:0' }, 'You see a summary only. No call audio is shared.')));
+  }
+  if (ev.type === 'risk') {
+    $('#status').textContent = `On a call · ${LEVEL_TEXT[ev.level]}`; $('#status').style.color = `var(--${ev.level})`;
+    $('#statusSub').textContent = ev.combos?.[0] || (ev.claims?.claimed_identity ? 'Caller claims: ' + ev.claims.claimed_identity : 'Riposte is listening.');
+    if (['high', 'critical'].includes(ev.level)) $('#actPanel').classList.remove('hidden');
+  }
+  if (ev.type === 'call_ended') { $('#status').textContent = 'Call ended'; $('#status').style.color = ''; $('#statusSub').textContent = `A report is ready on ${protectedName}'s device.`; }
+  if (ev.type === 'payment') paymentCard(ev.payment);
+  if (ev.type === 'freeze') feedAdd(h('div', { class: 'item' }, `${ev.frozen ? `🧊 ${protectedName} froze their cards & UPI` : `🔓 ${protectedName} unfroze their account`}`));
+  if (ev.type === 'decoy' && ev.active) feedAdd(h('div', { class: 'item' }, '⚔️ Riposte AI has taken over the call and is collecting the scammer’s details.'));
+}, (s) => $('#dot').className = 'dot ' + s);
+</script>
+</body>
+</html>

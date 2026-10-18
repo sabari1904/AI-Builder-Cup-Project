@@ -1,0 +1,10 @@
+.venv
+.git
+**/__pycache__
+.pytest_cache
+.env
+.dev.*
+evals/audio
+.idea
+tools/ui/node_modules
+.docker-build.log

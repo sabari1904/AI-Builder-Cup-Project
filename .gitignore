@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+.env
+node_modules/
+dist/
+.dev.pid
+.dev.log
+tools/ui/node_modules/
+.docker-build.log
+.idea/

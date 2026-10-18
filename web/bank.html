@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Riposte Bank Console</title>
+<link rel="stylesheet" href="/static/style.css?v=3">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="bar">
+  <div class="logo">Ri<span>poste</span></div><div class="role">Bank fraud desk · partner bank console</div>
+  <div class="spacer"></div><span class="dot" id="dot"></span>
+</header>
+<main>
+  <div class="grid">
+    <div class="panel">
+      <h2>Live customer calls</h2>
+      <div id="calls" class="feed"><p class="muted">No calls.</p></div>
+    </div>
+    <div class="panel">
+      <h2>Payments held by Riposte</h2>
+      <div id="pays" class="feed"><p class="muted">None.</p></div>
+    </div>
+  </div>
+  <div class="panel" style="margin-top:16px">
+    <div class="row" style="justify-content:space-between"><h2 style="margin:0">Scam intelligence (mule-account leads)</h2>
+      <span class="small muted">Leads to verify, never automatic freezes</span></div>
+    <table style="margin-top:8px"><thead><tr><th>When</th><th>Type</th><th>Value</th><th>Source</th><th>Check</th></tr></thead>
+      <tbody id="intel"><tr><td colspan="5" class="muted">None yet.</td></tr></tbody></table>
+  </div>
+  <div class="grid" style="margin-top:16px">
+    <div class="panel">
+      <h2>Tripwire: planted decoy card</h2>
+      <p class="small muted">The AI decoy only ever gives out these fake details. Any use of them reveals where the scam cashes out.</p>
+      <div id="honey" class="mono small"></div>
+      <label for="merchant">Simulate the scammer using the decoy card at…</label>
+      <div class="row"><input id="merchant" value="QuickGold Jewellers, Kolkata (MID 4471902)">
+      <button id="trip">Charge attempt</button></div>
+      <div id="tripOut" class="small" style="margin-top:8px"></div>
+    </div>
+    <div class="panel">
+      <h2>Account controls</h2>
+      <div id="ctx" class="small"></div>
+    </div>
+  </div>
+</main>
+<script type="module">
+import { $, h, api, stream, rupees, ago, CIRCLE, LEVEL_TEXT, SIGNAL_TEXT } from '/static/app.js';
+const calls = {}, pays = {}; let honey = null, circle = null;
+
+function renderCalls() {
+  const el = $('#calls'); el.replaceChildren();
+  const list = Object.values(calls).sort((a, b) => b.started_at - a.started_at).slice(0, 8);
+  if (!list.length) el.append(h('p', { class: 'muted' }, 'No calls.'));
+  for (const c of list) el.append(h('div', { class: 'item' + (c.peak === 'critical' && !c.ended_at ? ' urgent' : '') },
+    h('div', { class: 'top' }, h('b', {}, `Ramesh ← ${c.caller || 'unknown'}`), h('span', { class: 'pill lv-' + c.level }, LEVEL_TEXT[c.level])),
+    h('div', { class: 'small muted' }, `${c.ended_at ? 'ended' : 'live'} · started ${ago(c.started_at)} · score ${c.score ?? 0}${c.decoy ? ' · ⚔️ AI decoy on call' : ''}`),
+    (c.combos || []).length ? h('div', { class: 'small' }, '⚠️ ' + c.combos[0]) : '',
+    h('div', { class: 'small' }, (c.reasons || []).slice(0, 4).map(r => SIGNAL_TEXT[r.type] || r.type).join(' · '))));
+}
+function renderPays() {
+  const el = $('#pays'); el.replaceChildren();
+  const list = Object.values(pays).sort((a, b) => b.created_at - a.created_at);
+  if (!list.length) el.append(h('p', { class: 'muted' }, 'None.'));
+  for (const p of list) el.append(h('div', { class: 'item' },
+    h('div', { class: 'top' }, h('b', {}, `${p.id} · ${rupees(p.amount)}`), h('span', { class: 'pill ' + (['held', 'blocked', 'frozen'].includes(p.status) ? 'lv-critical' : 'lv-calm') }, p.status)),
+    h('div', { class: 'small mono' }, p.payee), h('div', { class: 'small muted' }, p.reason)));
+}
+function addIntel(i) {
+  const tb = $('#intel'); if (tb.firstChild?.firstChild?.colSpan === 5) tb.replaceChildren();
+  tb.prepend(h('tr', {}, h('td', { class: 'small' }, new Date(i.at * 1000).toLocaleTimeString()),
+    h('td', {}, h('span', { class: 'pill ' + (i.source === 'tripwire' ? 'lv-critical' : 'lv-high') }, i.kind.toUpperCase())),
+    h('td', { class: 'mono' }, i.value), h('td', { class: 'small' }, i.source === 'decoy' ? 'AI decoy' : i.source === 'tripwire' ? 'Tripwire' : 'Live call'),
+    h('td', { class: 'small' }, i.valid ? (i.note || 'Format valid') : '⚠️ ' + (i.note || 'Check format'))));
+}
+function renderCtx() {
+  if (!circle) return;
+  const until = circle.risk_context_until * 1000;
+  $('#ctx').replaceChildren(
+    h('p', {}, h('b', {}, 'Kill switch: '), circle.frozen ? '🧊 FROZEN' : 'off'),
+    h('p', {}, h('b', {}, 'Extra checks on this account: '), until > Date.now() ? `ON until ${new Date(until).toLocaleString()}` : 'off'),
+    h('p', { class: 'small muted' }, 'When Riposte reports a scam in progress, the bank adds step-up checks on new devices, new payees and large card spends for 24 hours.'));
+}
+$('#trip').onclick = async () => {
+  const r = await api('/api/bank/card-attempt', { circle: CIRCLE, card: honey.card_number, merchant: $('#merchant').value });
+  $('#tripOut').textContent = r.tripwire ? `🚨 Declined. Tripwire hit: ${r.intel.value} is the cash-out point.` : 'Not a decoy card.';
+};
+stream((ev) => {
+  if (ev.type === 'hello') {
+    const s = ev.snapshot; honey = s.honey; circle = s.circle;
+    $('#honey').textContent = `Card ${honey.card_number}  exp ${honey.card_expiry}  CVV ${honey.card_cvv}\nUPI ${honey.upi_id}  A/c ${honey.account}`;
+    $('#honey').style.whiteSpace = 'pre-wrap';
+    s.calls.forEach(c => calls[c.call_id] = c); s.payments.forEach(p => pays[p.id] = p);
+    $('#intel').replaceChildren(h('tr', {}, h('td', { colspan: 5, class: 'muted' }, 'None yet.'))); s.intel.forEach(addIntel);
+    renderCalls(); renderPays(); renderCtx();
+  }
+  if (ev.type === 'call_started') { calls[ev.call_id] = { call_id: ev.call_id, caller: ev.caller, started_at: ev.at, level: 'calm', peak: 'calm' }; renderCalls(); }
+  if (ev.type === 'risk' && calls[ev.call_id]) { Object.assign(calls[ev.call_id], ev); renderCalls(); }
+  if (ev.type === 'call_ended' && calls[ev.call_id]) { calls[ev.call_id].ended_at = ev.at; renderCalls(); }
+  if (ev.type === 'decoy' && calls[ev.call_id]) { calls[ev.call_id].decoy = ev.active; renderCalls(); }
+  if (ev.type === 'payment') { pays[ev.payment.id] = ev.payment; renderPays(); }
+  if (ev.type === 'intel' || ev.type === 'tripwire') addIntel(ev.intel);
+  if (ev.type === 'bank_context') { circle.risk_context_until = ev.until; renderCtx(); }
+  if (ev.type === 'freeze') { circle.frozen = ev.frozen; renderCtx(); }
+}, (s) => $('#dot').className = 'dot ' + s);
+setInterval(renderCalls, 5000);
+</script>
+</body>
+</html>

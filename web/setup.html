@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Riposte Setup</title>
+<link rel="stylesheet" href="/static/style.css?v=3">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="bar"><div class="logo">Ri<span>poste</span></div><div class="role">Set up</div></header>
+<main>
+  <section class="panel" style="max-width:640px;margin:0 auto">
+
+    <div id="s-role">
+      <div class="hero" style="font-size:28px">Who is this for?</div>
+      <p class="muted" style="margin:6px 0 18px">Takes under a minute. You can change any of this later.</p>
+      <div class="cta-row">
+        <button class="primary" id="roleSelf" style="min-height:72px">📱 Protect myself<br><span class="small" style="font-weight:400;opacity:.85">I'll pay and take calls on this phone</span></button>
+        <button id="roleFamily" style="min-height:72px">👨‍👩‍👧 Watch over family<br><span class="small" style="font-weight:400;opacity:.85">I'll get alerts about a parent or relative</span></button>
+      </div>
+      <p class="small muted center" style="margin-top:16px"><a href="/" style="color:inherit">← Back</a> · Already have an invite code? <a href="#" id="haveCode" style="color:inherit;text-decoration:underline">Enter it</a></p>
+      <div id="codeRow" class="hidden row" style="margin-top:10px">
+        <input id="codeInput" placeholder="6-digit code" inputmode="numeric" style="flex:1">
+        <button id="codeGo">Join</button>
+      </div>
+      <p class="small" id="codeErr" style="color:var(--critical)"></p>
+    </div>
+
+    <div id="s-you" class="hidden">
+      <div class="hero" style="font-size:28px" id="youTitle">Your details</div>
+      <label for="yourName">Your name</label>
+      <input id="yourName" placeholder="e.g. Ramesh Kumar">
+      <div id="selfFields">
+        <label for="yourNumber">Your phone number</label>
+        <input id="yourNumber" inputmode="tel" placeholder="+91 98450 00000">
+      </div>
+      <div id="familyFields" class="hidden">
+        <label for="relation">Your relation to them</label>
+        <select id="relation">
+          <option value="daughter">Daughter</option><option value="son">Son</option>
+          <option value="spouse">Spouse</option><option value="sibling">Sibling</option>
+          <option value="family">Other family</option>
+        </select>
+        <div id="theirFields">
+          <label for="theirName">Their name (the person you're protecting)</label>
+          <input id="theirName" placeholder="e.g. Ramesh Kumar">
+          <label for="theirNumber">Their phone number <span class="muted small">(optional)</span></label>
+          <input id="theirNumber" inputmode="tel" placeholder="+91 98450 00000">
+        </div>
+      </div>
+      <div class="cta-row" style="margin-top:16px">
+        <button id="youBack">← Back</button>
+        <button class="primary" id="youNext">Continue</button>
+      </div>
+      <p class="small" id="youErr" style="color:var(--critical)"></p>
+    </div>
+
+    <div id="s-contacts" class="hidden">
+      <div class="hero" style="font-size:28px">Emergency contacts</div>
+      <p class="muted" style="margin:6px 0 14px">People to alert if a call turns risky. Saved contacts are also how Riposte tells a known caller from an unknown one.</p>
+      <button id="syncBtn" style="width:100%;margin-bottom:14px">📇 Import from phone contacts</button>
+      <p class="small muted" id="syncNote"></p>
+      <div id="contactList" class="stack" style="gap:8px"></div>
+      <div class="row" style="margin-top:12px">
+        <input id="cName" placeholder="Name" style="flex:1;min-width:120px">
+        <input id="cNum" placeholder="+91 98450 12345" inputmode="tel" style="flex:1;min-width:140px">
+        <button id="cAdd">Add</button>
+      </div>
+      <div class="cta-row" style="margin-top:18px">
+        <button id="cBack">← Back</button>
+        <button class="primary" id="cNext">Continue</button>
+      </div>
+    </div>
+
+    <div id="s-cards" class="hidden">
+      <div class="hero" style="font-size:28px">Cards & UPI to protect</div>
+      <p class="muted" style="margin:6px 0 14px">Optional, for your own reference during a hold. <b>Stored on this device only</b> — never sent anywhere, never shown to the AI decoy.</p>
+      <div id="cardList" class="stack" style="gap:8px"></div>
+      <div class="row" style="margin-top:12px">
+        <input id="ckName" placeholder="Nickname (e.g. HDFC card)" style="flex:1;min-width:140px">
+        <input id="ckLast4" placeholder="Last 4 digits" maxlength="4" inputmode="numeric" style="width:120px">
+        <button id="ckAdd">Add</button>
+      </div>
+      <div class="cta-row" style="margin-top:18px">
+        <button id="kBack">← Back</button>
+        <button class="primary" id="kFinish">Finish setup</button>
+      </div>
+    </div>
+
+    <div id="s-done" class="hidden center">
+      <div class="hero" style="font-size:28px">You're set up</div>
+      <p class="muted" id="doneText"></p>
+      <div class="cta-row" style="margin-top:16px"><a class="btn primary" id="goApp">Go to the demo home →</a></div>
+    </div>
+
+  </section>
+</main>
+<script type="module">
+import { $, h, api } from '/static/app.js';
+
+let role = null;                 // 'self' | 'family'
+let circleId = null, memberId = null;
+const contacts = [];             // {name, number, source}
+const cards = [];                // local-only, never sent to the server
+
+function show(id) { for (const s of ['s-role','s-you','s-contacts','s-cards','s-done']) $('#' + s).classList.toggle('hidden', s !== id); }
+
+$('#haveCode').onclick = (e) => { e.preventDefault(); $('#codeRow').classList.toggle('hidden'); };
+$('#codeGo').onclick = async () => {
+  try {
+    const r = await api(`/api/circle/join?code=${encodeURIComponent($('#codeInput').value.trim())}`, null, 'GET');
+    location.href = `/setup?circle=${r.circle}`;
+  } catch (e) { $('#codeErr').textContent = "No circle has that code. Check with whoever shared it."; }
+};
+// A code joins an existing circle as a family member: skip straight to the "you" step with family fields,
+// then into contacts, reusing the same wizard against that circle id instead of creating a new one.
+const joinCircle = new URLSearchParams(location.search).get('circle');
+if (joinCircle) { circleId = joinCircle; role = 'family'; $('#youTitle').textContent = 'Join as a trusted contact'; $('#selfFields').classList.add('hidden'); $('#familyFields').classList.remove('hidden'); $('#theirFields').classList.add('hidden'); show('s-you'); }
+
+$('#roleSelf').onclick = () => { role = 'self'; $('#selfFields').classList.remove('hidden'); $('#familyFields').classList.add('hidden'); show('s-you'); };
+$('#roleFamily').onclick = () => { role = 'family'; $('#selfFields').classList.add('hidden'); $('#familyFields').classList.remove('hidden'); show('s-you'); };
+$('#youBack').onclick = () => show('s-role');
+
+$('#youNext').onclick = async () => {
+  const name = $('#yourName').value.trim();
+  if (!name) { $('#youErr').textContent = 'Please enter your name.'; return; }
+  $('#youErr').textContent = '';
+  try {
+    if (circleId) {
+      // joining an existing circle by code: add self as a member, nothing else to create
+      const m = await api('/api/circle/members', { circle: circleId, name, relation: $('#relation').value });
+      memberId = m.id;
+    } else if (role === 'self') {
+      const r = await api('/api/circles', { protected_name: name, protected_number: $('#yourNumber').value.trim() });
+      circleId = r.circle;
+    } else {
+      const theirName = $('#theirName').value.trim() || `${name}'s family`;
+      const r = await api('/api/circles', { protected_name: theirName, protected_number: $('#theirNumber').value.trim() });
+      circleId = r.circle;
+      const m = await api('/api/circle/members', { circle: circleId, name, relation: $('#relation').value });
+      memberId = m.id;
+    }
+    show('s-contacts');
+  } catch (e) { $('#youErr').textContent = e.message; }
+};
+
+function renderContacts() {
+  const box = $('#contactList'); box.replaceChildren();
+  for (const c of contacts) box.append(h('div', { class: 'chip', style: 'justify-content:space-between' },
+    h('span', {}, h('b', {}, c.name), ' ', h('span', { class: 'mono muted' }, c.number), c.source === 'synced' ? h('span', { class: 'pill lv-calm', style: 'margin-left:6px' }, 'synced') : ''),
+    h('button', { style: 'min-height:32px;padding:4px 10px', onclick: () => { contacts.splice(contacts.indexOf(c), 1); renderContacts(); } }, '✕')));
+  if (!contacts.length) box.append(h('p', { class: 'muted small' }, 'No contacts added yet.'));
+}
+$('#cAdd').onclick = () => {
+  const name = $('#cName').value.trim(), number = $('#cNum').value.trim();
+  if (!name || !number) return;
+  contacts.push({ name, number, source: 'manual' }); $('#cName').value = $('#cNum').value = ''; renderContacts();
+};
+$('#syncBtn').onclick = async () => {
+  if (!('contacts' in navigator && 'ContactsManager' in window)) {
+    $('#syncNote').textContent = "This browser can't import phone contacts directly (Android Chrome supports it; most desktop and iOS browsers don't). Add them manually below.";
+    return;
+  }
+  try {
+    const picked = await navigator.contacts.select(['name', 'tel'], { multiple: true });
+    for (const p of picked) {
+      const name = (p.name && p.name[0]) || 'Contact';
+      const number = (p.tel && p.tel[0]) || '';
+      if (number) contacts.push({ name, number, source: 'synced' });
+    }
+    renderContacts();
+    $('#syncNote').textContent = `Imported ${picked.length} contact(s).`;
+  } catch (e) { $('#syncNote').textContent = 'Import cancelled.'; }
+};
+$('#cBack').onclick = () => show('s-you');
+$('#cNext').onclick = async () => {
+  for (const c of contacts) { try { await api('/api/circle/contacts', { circle: circleId, name: c.name, number: c.number, source: c.source }); } catch {} }
+  if (role === 'family') { finish(); } else { show('s-cards'); }
+};
+
+function renderCards() {
+  const box = $('#cardList'); box.replaceChildren();
+  for (const c of cards) box.append(h('div', { class: 'chip', style: 'justify-content:space-between' },
+    h('span', {}, h('b', {}, c.name), ' ', h('span', { class: 'mono muted' }, '•••• ' + c.last4)),
+    h('button', { style: 'min-height:32px;padding:4px 10px', onclick: () => { cards.splice(cards.indexOf(c), 1); renderCards(); } }, '✕')));
+  if (!cards.length) box.append(h('p', { class: 'muted small' }, 'No cards added.'));
+}
+$('#ckAdd').onclick = () => {
+  const name = $('#ckName').value.trim(), last4 = $('#ckLast4').value.trim();
+  if (!name || last4.length !== 4) return;
+  cards.push({ name, last4 }); $('#ckName').value = $('#ckLast4').value = ''; renderCards();
+};
+$('#kBack').onclick = () => show('s-contacts');
+$('#kFinish').onclick = () => {
+  try { localStorage.setItem(`riposte-cards-${circleId}`, JSON.stringify(cards)); } catch {}
+  finish();
+};
+
+function finish() {
+  if (memberId) { try { localStorage.setItem(`riposte-member-${circleId}`, memberId); } catch {} }
+  $('#doneText').textContent = role === 'family'
+    ? "You'll get alerts the moment a call turns risky, with evidence, and one-tap ways to help. Head back to the demo home to open your screen alongside the others."
+    : "Payments started during a risky call will be held, and your trusted contacts will be alerted. Head back to the demo home to open your screen alongside the others.";
+  $('#goApp').href = `/?circle=${circleId}&role=${role}`;
+  show('s-done');
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Riposte Phone</title>
+<link rel="stylesheet" href="/static/style.css?v=3">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<div class="device-shell"><div class="device-frame">
+<div class="device-notch"></div>
+<div class="device-statusbar"><span class="device-clock">9:41</span><span>📶 🔋</span></div>
+<div class="device-scroll">
+<header class="bar">
+  <div class="logo">Ri<span>poste</span></div><div class="role" id="roleLabel">Ramesh's phone</div>
+  <div class="spacer"></div><span class="dot" id="dot"></span>
+</header>
+<main class="phone stack">
+  <div class="panel hidden" id="callBanner"></div>
+
+  <div class="panel">
+    <h2>Simulate: pay with UPI</h2>
+    <p class="small muted" style="margin-top:0">Riposte doesn't process payments. This stands in for your own banking app, so you can see what happens when a payment is started during a risky call &mdash; no real money moves.</p>
+    <label for="payee">Pay to (UPI ID or name)</label>
+    <input id="payee" value="icicicardprotect@ybl">
+    <label for="amt">Amount (₹)</label>
+    <input id="amt" type="number" value="4999" min="1">
+    <button class="primary" id="pay" style="width:100%;margin-top:16px">Simulate payment</button>
+    <div id="payResult" style="margin-top:14px"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Simulate an incoming OTP SMS</h2>
+    <p class="small muted" style="margin-top:0">No real SMS is sent. This stands in for an OTP arriving from your bank, so you can see the warning Riposte shows during a risky call.</p>
+    <div class="row">
+      <button data-otp="transaction">Payment OTP</button>
+      <button data-otp="login">New-device login</button>
+      <button data-otp="application">Card application</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>My saved contacts</h2>
+    <p class="small muted" style="margin-top:0">Riposte uses these to tell a known caller from an unknown one. In the real app they're read from your phone's contacts and stay on your device. <b>A contact saved while you're on a call is flagged</b> &mdash; scammers sometimes ask you to save their number as something trustworthy.</p>
+    <button id="syncBtn" style="width:100%;margin-bottom:10px">📇 Import from phone contacts</button>
+    <p class="small muted" id="syncNote"></p>
+    <div id="contacts" class="stack" style="gap:8px"></div>
+    <div class="row" style="margin-top:12px">
+      <input id="cName" placeholder="Name" style="flex:1;min-width:120px">
+      <input id="cNum" placeholder="+91 98450 12345" inputmode="tel" style="flex:1;min-width:140px">
+      <button id="cAdd">Add</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Cards & UPI on file</h2>
+    <p class="small muted" style="margin-top:0">For your own reference during a hold. <b>Stored on this device only</b> &mdash; never sent to the server or the AI decoy.</p>
+    <div id="cards" class="stack" style="gap:8px"></div>
+    <div class="row" style="margin-top:12px">
+      <input id="ckName" placeholder="Nickname (e.g. HDFC card)" style="flex:1;min-width:140px">
+      <input id="ckLast4" placeholder="Last 4 digits" maxlength="4" inputmode="numeric" style="width:120px">
+      <button id="ckAdd">Add</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>My profile</h2>
+    <label for="pName">Your name</label>
+    <input id="pName">
+    <label for="pNumber">Your phone number</label>
+    <input id="pNumber" inputmode="tel">
+    <button id="pSave" style="margin-top:10px">Save</button>
+    <p class="small muted" id="pNote" style="margin-bottom:0"></p>
+    <p class="small muted">Invite code for a trusted contact to join: <b class="mono" id="inviteCode">&mdash;</b></p>
+  </div>
+
+  <div class="panel">
+    <h2>Emergency</h2>
+    <button class="danger" id="kill" style="width:100%">🛑 Freeze all my cards & UPI</button>
+    <p class="small muted" id="frozenNote" style="margin-bottom:0"></p>
+  </div>
+</main>
+</div><!-- /device-scroll -->
+<div class="device-home-indicator"></div>
+<div class="overlay" id="otpOverlay"><div class="sheet" id="otpSheet"></div></div>
+<div class="overlay" id="reqOverlay"><div class="sheet" id="reqSheet"></div></div>
+</div></div><!-- /device-frame, /device-shell -->
+
+<script type="module">
+import { $, h, api, stream, rupees, CIRCLE, LEVEL_TEXT } from '/static/app.js';
+let frozen = false, timer = null, currentPay = null;
+
+function renderPayment(p) {
+  currentPay = p.id;
+  const box = $('#payResult'); box.replaceChildren();
+  const title = { completed: '✅ Payment sent', released: '✅ Released and sent', held: '⏸️ Payment on hold',
+    blocked: '🛑 Payment cancelled', frozen: '🧊 Account frozen' }[p.status] || p.status;
+  const el = h('div', { class: `item ${p.status === 'held' ? 'urgent' : ''}` },
+    h('div', { class: 'big' }, title), h('div', {}, `${rupees(p.amount)} to `, h('span', { class: 'mono' }, p.payee)),
+    h('p', { class: 'muted small' }, p.reason));
+  clearInterval(timer);
+  if (p.status === 'held') {
+    const cd = h('div', { class: 'small', style: 'margin-bottom:10px' });
+    const cancel = h('button', { class: 'danger', style: 'flex:1' }, 'Cancel payment');
+    const rel = h('button', { style: 'flex:1', disabled: true }, 'Send anyway');
+    el.append(cd, h('div', { class: 'row' }, cancel, rel));
+    timer = setInterval(() => {
+      const left = Math.round(p.release_after - Date.now() / 1000);
+      cd.textContent = left > 0 ? `You can send it yourself after the cooling-off: ${Math.floor(left / 60)}m ${left % 60}s` : 'Cooling-off finished.';
+      rel.disabled = left > 0;
+    }, 1000);
+    cancel.onclick = async () => renderPayment(await api(`/api/phone/cancel/${p.id}`, {}));
+    rel.onclick = async () => { try { renderPayment(await api(`/api/phone/release/${p.id}`, {})); } catch (e) { alert(e.message); } };
+  }
+  box.append(el);
+}
+
+$('#pay').onclick = async () => {
+  try { renderPayment(await api('/api/phone/pay', { circle: CIRCLE, payee: $('#payee').value, amount: +$('#amt').value })); }
+  catch (e) { alert(e.message); }
+};
+document.querySelectorAll('[data-otp]').forEach(b => b.onclick = () => api('/api/phone/otp', { circle: CIRCLE, purpose: b.dataset.otp }));
+
+function closer(id) { return h('button', { style: 'width:100%;margin-top:12px', onclick: () => $(id).classList.remove('show') }, 'Close'); }
+function showOtp(ev) {
+  const s = $('#otpSheet'); s.replaceChildren();
+  const sms = h('div', { class: 'item mono small' }, ev.sms);
+  if (ev.guard === 'none') s.append(h('div', { class: 'big' }, 'New SMS'), sms, closer('#otpOverlay'));
+  else if (ev.guard === 'gentle_note') s.append(h('div', { class: 'big' }, 'This OTP is for an application'), sms,
+    h('p', {}, 'Only share it if you are sure who is calling. Better: type it yourself on the bank’s own page.'), closer('#otpOverlay'));
+  else {
+    const hidden = h('div', { class: 'item mono small', style: 'filter:blur(6px)' }, ev.sms);
+    const reveal = h('button', { style: 'width:100%;margin-top:12px', disabled: true }, 'Show the code anyway (wait 10 s)');
+    let n = 10;
+    const t = setInterval(() => { n--; reveal.textContent = n > 0 ? `Show the code anyway (wait ${n} s)` : 'Show the code anyway'; if (n <= 0) { reveal.disabled = false; clearInterval(t); } }, 1000);
+    reveal.onclick = () => { hidden.style.filter = ''; reveal.remove(); };
+    const what = ev.purpose === 'login' ? 'Anyone with this code can log into your bank from their phone.' : 'Anyone with this code can take money from your account.';
+    s.append(h('div', { class: 'big', style: 'color:var(--critical)' }, '⚠️ Do NOT share this OTP'),
+      h('p', {}, `You are on a ${LEVEL_TEXT[ev.level].toLowerCase()} call. ${what} No bank ever asks for it.`), hidden, reveal, closer('#otpOverlay'));
+  }
+  $('#otpOverlay').classList.add('show');
+}
+
+function showRequest(ev) {
+  const s = $('#reqSheet'); s.replaceChildren(h('div', { class: 'big' }, `💬 Message from ${ev.by}`), h('p', {}, ev.text));
+  const acts = h('div', { class: 'stack', style: 'gap:10px' });
+  if (ev.kind === 'stop_payment' && currentPay) acts.append(h('button', { class: 'danger', onclick: async () => { renderPayment(await api(`/api/phone/cancel/${currentPay}`, {})); $('#reqOverlay').classList.remove('show'); } }, 'Cancel the payment'));
+  if (ev.kind === 'freeze') acts.append(h('button', { class: 'danger', onclick: async () => { await api('/api/bank/freeze', { circle: CIRCLE, frozen: true, by: 'Ramesh' }); $('#reqOverlay').classList.remove('show'); } }, 'Freeze my cards & UPI'));
+  if (ev.kind === 'call_me') acts.append(h('a', { class: 'btn primary', href: 'tel:+919845012345' }, `Call ${ev.by}`));
+  acts.append(closer('#reqOverlay'));
+  s.append(acts); $('#reqOverlay').classList.add('show');
+}
+
+function renderContacts(list) {
+  const box = $('#contacts'); box.replaceChildren();
+  for (const c of list) box.append(h('div', { class: 'chip', style: 'justify-content:space-between' },
+    h('span', {},
+      h('b', {}, c.name), ' ', h('span', { class: 'mono muted' }, c.number),
+      c.source === 'synced' ? h('span', { class: 'pill lv-calm', style: 'margin-left:6px' }, 'synced') : '',
+      c.flagged ? h('span', { class: 'pill lv-critical', style: 'margin-left:6px' }, '⚠️ saved on a call') : ''),
+    h('button', { style: 'min-height:32px;padding:4px 10px', onclick: () => api(`/api/circle/contacts?circle=${CIRCLE}&number=${encodeURIComponent(c.number)}`, null, 'DELETE').then(renderContacts) }, '✕')));
+  if (!list.length) box.append(h('p', { class: 'muted small' }, 'No saved contacts.'));
+}
+$('#cAdd').onclick = async () => {
+  try { renderContacts(await api('/api/circle/contacts', { circle: CIRCLE, name: $('#cName').value, number: $('#cNum').value })); $('#cName').value = $('#cNum').value = ''; }
+  catch (e) { alert(e.message); }
+};
+$('#syncBtn').onclick = async () => {
+  if (!('contacts' in navigator && 'ContactsManager' in window)) {
+    $('#syncNote').textContent = "This browser can't import phone contacts directly (Android Chrome supports it). Add them manually above.";
+    return;
+  }
+  try {
+    const picked = await navigator.contacts.select(['name', 'tel'], { multiple: true });
+    let list;
+    for (const p of picked) {
+      const name = (p.name && p.name[0]) || 'Contact', number = (p.tel && p.tel[0]) || '';
+      if (number) list = await api('/api/circle/contacts', { circle: CIRCLE, name, number, source: 'synced' });
+    }
+    if (list) renderContacts(list);
+    $('#syncNote').textContent = `Imported ${picked.length} contact(s).`;
+  } catch (e) { $('#syncNote').textContent = 'Import cancelled.'; }
+};
+
+// ---- cards on file: local to this device only, never sent anywhere -----------------------
+const cardsKey = `riposte-cards-${CIRCLE}`;
+function loadCards() { try { return JSON.parse(localStorage.getItem(cardsKey) || '[]'); } catch { return []; } }
+function saveCards(list) { try { localStorage.setItem(cardsKey, JSON.stringify(list)); } catch {} }
+function renderCards() {
+  const list = loadCards();
+  const box = $('#cards'); box.replaceChildren();
+  for (const c of list) box.append(h('div', { class: 'chip', style: 'justify-content:space-between' },
+    h('span', {}, h('b', {}, c.name), ' ', h('span', { class: 'mono muted' }, '•••• ' + c.last4)),
+    h('button', { style: 'min-height:32px;padding:4px 10px', onclick: () => { saveCards(loadCards().filter(x => x !== c)); renderCards(); } }, '✕')));
+  if (!list.length) box.append(h('p', { class: 'muted small' }, 'No cards added.'));
+}
+$('#ckAdd').onclick = () => {
+  const name = $('#ckName').value.trim(), last4 = $('#ckLast4').value.trim();
+  if (!name || last4.length !== 4) return;
+  saveCards([...loadCards(), { name, last4 }]); $('#ckName').value = $('#ckLast4').value = ''; renderCards();
+};
+renderCards();
+
+// ---- profile ------------------------------------------------------------------------------
+$('#pSave').onclick = async () => {
+  try { await api('/api/circle/profile', { circle: CIRCLE, protected_name: $('#pName').value, protected_number: $('#pNumber').value }); $('#pNote').textContent = '✓ Saved.'; }
+  catch (e) { $('#pNote').textContent = e.message; }
+};
+
+$('#kill').onclick = () => api('/api/bank/freeze', { circle: CIRCLE, frozen: !frozen, by: 'Ramesh' });
+
+function banner(ev) {
+  const b = $('#callBanner'); b.classList.remove('hidden');
+  b.className = 'panel lv-' + ev.level;
+  b.replaceChildren(h('div', { class: 'big' }, `📞 On a call · ${LEVEL_TEXT[ev.level]}`),
+    ev.card ? h('div', {}, h('b', {}, ev.card.title), h('div', { class: 'small' }, ev.card.do)) : '');
+}
+function updateFrozen() {
+  $('#kill').textContent = frozen ? '🔓 Unfreeze my account' : '🛑 Freeze all my cards & UPI';
+  $('#frozenNote').textContent = frozen ? 'Frozen: no payments can leave your account.' : 'Stops every card and UPI payment until you unfreeze.';
+}
+
+stream((ev) => {
+  if (ev.type === 'hello') {
+    frozen = ev.snapshot.circle.frozen; updateFrozen(); renderContacts(ev.snapshot.circle.contacts);
+    if (ev.snapshot.active_call) banner({ level: ev.snapshot.active_call.level });
+    $('#pName').value = ev.snapshot.circle.protected_name || ''; $('#pNumber').value = ev.snapshot.circle.protected_number || '';
+    $('#inviteCode').textContent = ev.snapshot.circle.invite_code || '—';
+    $('#roleLabel').textContent = (ev.snapshot.circle.protected_name || 'Your') + "'s phone";
+  }
+  if (ev.type === 'profile') { $('#pName').value = ev.protected_name || ''; $('#pNumber').value = ev.protected_number || ''; $('#roleLabel').textContent = (ev.protected_name || 'Your') + "'s phone"; }
+  if (ev.type === 'otp') showOtp(ev);
+  if (ev.type === 'family_request') showRequest(ev);
+  if (ev.type === 'payment' && ev.payment.id === currentPay) renderPayment(ev.payment);
+  if (ev.type === 'freeze') { frozen = ev.frozen; updateFrozen(); }
+  if (ev.type === 'contacts') renderContacts(ev.contacts);
+  if (ev.type === 'risk') banner(ev);
+  if (ev.type === 'call_ended') $('#callBanner').classList.add('hidden');
+}, (s) => $('#dot').className = 'dot ' + s);
+</script>
+</body>
+</html>

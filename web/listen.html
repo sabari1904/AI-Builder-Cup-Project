@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Riposte Listener</title>
+<link rel="stylesheet" href="/static/style.css?v=3">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="bar">
+  <div class="logo">Ri<span>poste</span></div><div class="role">Listener · beside Ramesh's phone</div>
+  <div class="spacer"></div><span class="small muted" id="conn">idle</span>
+</header>
+<main>
+  <section class="panel" id="setup" style="max-width:820px;margin:0 auto">
+    <div class="hero" style="font-size:30px">Protect this call</div>
+    <p class="muted" style="margin:6px 0 0">Riposte listens to the call, warns you the moment something is wrong, and tells you what to say.</p>
+    <div class="steps">
+      <div class="step"><span class="n">1</span><b>Put the call on speaker</b><span class="small muted">Turn the volume all the way up.</span></div>
+      <div class="step"><span class="n">2</span><b>Place the phone here</b><span class="small muted">About an arm's length from this screen, 30–50 cm.</span></div>
+      <div class="step"><span class="n">3</span><b>Press Start</b><span class="small muted">Keep this screen open during the call.</span></div>
+    </div>
+    <label for="caller">Number shown on the phone</label>
+    <input id="caller" value="+91 98301 77241" inputmode="tel">
+    <div class="cta-row" style="margin-top:16px">
+      <button class="primary" id="startMic">🎙️ Start listening</button>
+      <button id="startDemo">▶ Replay the real ICICI scam call</button>
+    </div>
+    <div class="center" style="margin-top:12px"><button id="startType" style="min-height:40px;padding:8px 14px;font-size:14px">⌨️ No microphone? Type the call instead</button></div>
+    <p class="small muted center" id="micHelp"></p>
+  </section>
+
+  <section id="live" class="hidden">
+    <div class="grid">
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div id="callerInfo" class="hidden"></div>
+        <div class="meter calm" id="meter">
+          <div class="label" id="levelText">Calm</div>
+          <div class="sub" id="levelSub">Listening…</div>
+          <div class="bars"><i></i><i></i><i></i><i></i></div>
+        </div>
+        <div class="card hidden" id="card">
+          <div class="title" id="cTitle"></div>
+          <div class="why" id="cWhy"></div>
+          <div class="say" id="cSay"></div>
+          <div class="do" id="cDo"></div>
+          <div class="tip" id="cTip"></div>
+        </div>
+        <div class="panel hidden" id="presence"></div>
+        <div class="panel hidden" id="strikePanel" style="border:2px solid var(--critical)">
+          <div class="big">Let Riposte AI take this call</div>
+          <p class="muted small">Our AI talks to the caller as a confused elder, keeps them busy and collects where they want the money sent. It only ever gives out fake, planted details.</p>
+          <button class="danger" id="strikeBtn" style="width:100%">⚔️ Hand over to Riposte AI</button>
+        </div>
+        <div class="panel hidden" id="decoyPanel">
+          <h2>Riposte AI is on the call</h2>
+          <div id="decoyDone" class="hidden item urgent" style="margin-bottom:10px"></div>
+          <div class="small" style="margin-bottom:8px"><b>Collecting:</b></div>
+          <ul class="reasons small" id="checklist" style="margin-bottom:10px"></ul>
+          <div class="transcript" id="decoyLog"></div>
+          <div class="row" style="margin-top:10px">
+            <input id="decoyType" placeholder="Type what the scammer says (if not on speaker)">
+            <button class="secondary" id="decoySend">Send</button>
+            <button class="secondary" id="decoyStop">Stop AI</button>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div class="panel">
+          <h2>Why Riposte thinks so</h2>
+          <ul class="reasons" id="reasons"><li class="muted">Nothing suspicious yet.</li></ul>
+        </div>
+        <div class="panel">
+          <h2>What Riposte did</h2>
+          <ul class="reasons" id="actions"><li class="muted">Nothing needed yet.</li></ul>
+        </div>
+        <div class="panel">
+          <div class="row" style="justify-content:space-between"><h2 style="margin:0">Live transcript</h2>
+            <span class="small muted" id="txStatus"></span></div>
+          <div class="level-meter" style="margin:8px 0"><i id="mic"></i></div>
+          <div class="small" id="hearWarn" style="color:var(--caution)"></div>
+          <div class="transcript" id="tx"></div>
+          <div class="row hidden" id="typeRow" style="margin-top:10px">
+            <input id="typeLine" placeholder="Type what the caller says…">
+            <button class="secondary" id="typeSend">Add</button>
+          </div>
+        </div>
+        <div class="panel">
+          <h2>Payment details the caller gave</h2>
+          <ul class="reasons" id="intel"><li class="muted">None yet.</li></ul>
+        </div>
+        <button class="danger" id="endCall">⏹ End this call</button>
+        <div class="panel hidden" id="calmEndPanel">
+          <div class="big">✅ Call ended &mdash; nothing suspicious</div>
+          <p class="small muted">No report is needed for a calm call.</p>
+          <button id="wantReportAnyway" style="width:100%">Prepare a report anyway</button>
+        </div>
+        <div class="panel hidden" id="reportPanel">
+          <h2>After the call: what to do now</h2>
+          <div id="report" class="small">Preparing your action plan…</div>
+          <p class="small muted" id="reportBy"></p>
+        </div>
+        <button class="hidden" id="newCall" style="width:100%">🔁 Listen to another call</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script type="module">
+import { $, h, wsURL, LEVEL_TEXT, SIGNAL_TEXT, CIRCLE } from '/static/app.js';
+
+const ICICI = [
+  "Hello sir, I am calling from ICICI Bank credit card department.",
+  "We are offering card protection feature on your card, the charges are rupees 4,999.",
+  "Please open your iMobile app and go to cards, manage card, protect your card.",
+  "Okay sir no problem, please open this website icici cards dot services on your phone.",
+  "There you will see card protection, under that click on the button deactivate your card.",
+  "You will get a link for iMobile Lite app, it is available only through the link, not on play store, only for Android.",
+];
+const ORDER = ['calm', 'caution', 'high', 'critical'];
+let ws, callId, audioCtx, micStream, node, mode, lastText = Date.now(), loud = 0, peak = 'calm';
+let decoyWs = null, playCtx = null, playEnd = 0;
+const evidence = new Set();
+
+function setConn(t) { $('#conn').textContent = t; }
+
+let ended = false, retries = 0;
+function connect(m) {
+  mode = m;
+  const caller = encodeURIComponent($('#caller').value);
+  const resume = callId ? `&resume=${callId}` : '';
+  ws = new WebSocket(wsURL(`/ws/listen?circle=${CIRCLE}&caller=${caller}&mode=${m}${resume}`));
+  ws.binaryType = 'arraybuffer';
+  ws.onopen = () => { setConn('connected'); retries = 0; };
+  ws.onclose = () => {
+    if (ended) return setConn('call ended');
+    // network blip: resume the same call (server keeps it for 30 s)
+    if (retries < 8) { setConn('reconnecting…'); setTimeout(() => connect(mode), Math.min(500 * 2 ** retries++, 4000)); }
+    else setConn('disconnected: check your internet');
+  };
+  ws.onmessage = (e) => onEvent(JSON.parse(e.data));
+  $('#setup').classList.add('hidden'); $('#live').classList.remove('hidden');
+  if (m === 'text') $('#typeRow').classList.remove('hidden');
+}
+
+function onEvent(ev) {
+  if (ev.type === 'call') { callId = ev.call_id; if (ev.resumed && ev.risk) showRisk({ risk: ev.risk, new_signals: [], actions: [], card: null }); }
+  else if (ev.type === 'transcript') addTranscript(ev.text, ev.final);
+  else if (ev.type === 'risk') showRisk(ev);
+  else if (ev.type === 'entity') addIntel(ev.entity);
+  else if (ev.type === 'presence') showPresence(ev);
+  else if (ev.type === 'caller_info') showCaller(ev);
+  else if (ev.type === 'status') $('#txStatus').textContent = ev.transcriber;
+  else if (ev.type === 'error') alert(ev.message);
+}
+
+let interimEl = null;
+function addTranscript(text, final) {
+  lastText = Date.now(); $('#hearWarn').textContent = '';
+  const tx = $('#tx');
+  if (!final) {
+    if (!interimEl) { interimEl = h('p', { class: 'interim' }); tx.append(interimEl); }
+    interimEl.textContent = text;
+  } else {
+    if (interimEl) { interimEl.remove(); interimEl = null; }
+    const p = h('p'); p.textContent = text; tx.append(p); highlight();
+  }
+  tx.scrollTop = tx.scrollHeight;
+}
+
+function highlight() {
+  // mark evidence quotes inside the transcript (textContent only: no HTML injection)
+  for (const p of $('#tx').querySelectorAll('p:not(.interim)')) {
+    const t = p.textContent;
+    let hit = null;
+    for (const q of evidence) { const i = t.toLowerCase().indexOf(q.toLowerCase()); if (q.length > 3 && i >= 0) { hit = [i, q.length]; break; } }
+    if (!hit) continue;
+    p.replaceChildren(t.slice(0, hit[0]), h('mark', {}, t.slice(hit[0], hit[0] + hit[1])), t.slice(hit[0] + hit[1]));
+  }
+}
+
+function showRisk(ev) {
+  const r = ev.risk, lvl = r.level;
+  peak = r.peak || peak;
+  const m = $('#meter'); m.className = 'meter ' + lvl;
+  $('#levelText').textContent = LEVEL_TEXT[lvl];
+  $('#levelSub').textContent = r.combos[0] || (lvl === 'calm' ? 'Listening…' : `Risk score ${r.score}`);
+  m.querySelectorAll('.bars i').forEach((b, i) => b.classList.toggle('on', i <= ORDER.indexOf(lvl)));
+  for (const s of ev.new_signals) evidence.add(s.evidence);
+  highlight();
+  const ul = $('#reasons'); ul.replaceChildren();
+  for (const x of r.reasons) ul.append(h('li', {}, h('span', { class: 'pts' }, '+' + x.points),
+    h('div', {}, h('div', {}, SIGNAL_TEXT[x.type] || x.type), h('div', { class: 'ev' }, '“' + x.evidence + '”'))));
+  if (!r.reasons.length) ul.append(h('li', { class: 'muted' }, 'Nothing suspicious yet.'));
+  if (ev.card) {
+    $('#card').classList.remove('hidden'); $('#card').className = 'card ' + lvl;
+    $('#cTitle').textContent = ev.card.title; $('#cWhy').textContent = ev.card.why;
+    $('#cSay').textContent = 'Say: ' + ev.card.say; $('#cDo').textContent = '→ ' + ev.card.do;
+    $('#cTip').textContent = ev.card.tip ? 'AI tip: ' + ev.card.tip : '';
+  }
+  const acts = $('#actions'); acts.replaceChildren();
+  const names = { cover_otp: 'OTP guard is on: any OTP will be covered', arm_payment_hold: 'Your bank will hold any payment you start during this call',
+    alert_family_silent: 'Priya (trusted contact) has been quietly informed', alert_family_urgent: 'Priya (trusted contact) has been alerted and can call you',
+    bank_risk_context: 'Your bank has been asked to add extra checks', offer_kill_switch: 'Kill switch is ready on your phone' };
+  for (const a of ev.actions) if (names[a.type]) acts.append(h('li', {}, '✓ ' + names[a.type]));
+  if (!acts.children.length) acts.append(h('li', { class: 'muted' }, 'Nothing needed yet.'));
+  $('#strikePanel').classList.toggle('hidden', lvl !== 'critical' || !!decoyWs);
+}
+
+function addIntel(e) {
+  const ul = $('#intel'); if (ul.firstChild && ul.firstChild.classList?.contains('muted')) ul.replaceChildren();
+  ul.append(h('li', {}, h('span', { class: 'pill lv-high' }, e.kind.toUpperCase()), h('span', { class: 'mono' }, e.value)));
+}
+
+function showCaller(ev) {
+  const el = $('#callerInfo'); if (!el) return;
+  el.className = 'chip'; el.replaceChildren(ev.known ? `📇 Saved contact: ${ev.name}` : `❓ ${ev.number || 'Number hidden'}: not in your contacts`);
+}
+function showPresence(ev) {
+  const p = $('#presence'); p.classList.remove('hidden');
+  const txt = { checking: `Checking ${ev.member}'s phone…`, confirmed: `✅ ${ev.member}'s phone confirms it's really them.`,
+    denied: `❌ ${ev.member}'s phone says they are NOT calling you. This is not ${ev.member}.`,
+    unverified: `⚠️ Couldn't reach ${ev.member}'s phone. Treat as unverified, not safe.` };
+  p.style.border = ev.status === 'denied' ? '2px solid var(--critical)' : '';
+  p.replaceChildren(h('div', { class: 'big' }, txt[ev.status] || ev.status));
+}
+
+async function startMic() {
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: {
+      echoCancellation: true, noiseSuppression: false, autoGainControl: true, channelCount: 1 } });
+  } catch (e) {
+    $('#micHelp').textContent = 'Microphone permission was denied. Allow it in the browser, or use “Replay” / “Type the call”.';
+    return;
+  }
+  audioCtx = new AudioContext();
+  await audioCtx.audioWorklet.addModule('/static/pcm-worklet.js');
+  const src = audioCtx.createMediaStreamSource(micStream);
+  node = new AudioWorkletNode(audioCtx, 'pcm-capture');
+  node.port.onmessage = ({ data }) => {
+    $('#mic').style.width = Math.min(100, data.level * 300) + '%';
+    if (data.level > 0.05) loud++;
+    const gated = decoyWs && performance.now() < playEnd + 300;  // half-duplex: don't feed the AI its own voice
+    if (decoyWs && decoyWs.readyState === 1) { if (!gated) decoyWs.send(data.pcm); }
+    else if (ws && ws.readyState === 1) ws.send(data.pcm);
+  };
+  src.connect(node);
+  micStream.getAudioTracks()[0].addEventListener('ended', () => { setConn('microphone stopped: reload to resume'); });
+  connect('audio');
+  // "can't hear the caller" detector: sound in the room but no words for 12 s
+  setInterval(() => {
+    if (!decoyWs && Date.now() - lastText > 12000 && loud > 30)
+      $('#hearWarn').textContent = 'I can hear sound but no words. Move the phone closer and turn the call volume up.';
+    loud = 0;
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'status' }));
+  }, 4000);
+}
+
+function sendLine(t) { if (ws && ws.readyState === 1 && t.trim()) ws.send(JSON.stringify({ type: 'text', text: t })); }
+
+async function runDemo() {
+  connect('text');
+  await new Promise(r => ws.addEventListener('open', r, { once: true }));
+  for (const line of ICICI) { sendLine(line); await new Promise(r => setTimeout(r, 4500)); }
+}
+
+// ---- Strike: decoy playback + half-duplex mic routing --------------------------------
+function playPcm24(buf) {
+  playCtx = playCtx || new AudioContext({ sampleRate: 24000 });
+  const i16 = new Int16Array(buf), f = new Float32Array(i16.length);
+  for (let i = 0; i < i16.length; i++) f[i] = i16[i] / 32768;
+  const b = playCtx.createBuffer(1, f.length, 24000); b.copyToChannel(f, 0);
+  const s = playCtx.createBufferSource(); s.buffer = b; s.connect(playCtx.destination);
+  const start = Math.max(playCtx.currentTime + 0.02, playEndCtx || 0);
+  s.start(start); playEndCtx = start + b.duration;
+  playEnd = performance.now() + (playEndCtx - playCtx.currentTime) * 1000;
+}
+let playEndCtx = 0;
+
+function renderChecklist(ev) {
+  const got = ev.captured || [], c = ev.claims || {};
+  const has = (k) => got.find(x => x.kind === k);
+  const items = [
+    ['Who they claim to be', c.claimed_identity || c.claimed_person_name],
+    ['Callback number', has('phone')?.value],
+    ['UPI ID', has('upi')?.value], ['Bank account', has('account')?.value],
+    ['Website / app', has('domain')?.value || (c.links_or_apps || [])[0]],
+  ];
+  $('#checklist').replaceChildren(...items.map(([k, v]) => h('li', {}, h('span', { class: 'pts', style: `color:var(--${v ? 'calm' : 'muted'})` }, v ? '✓' : '…'),
+    h('div', {}, h('div', {}, k), v ? h('div', { class: 'ev mono' }, v) : h('div', { class: 'ev' }, 'asking…')))));
+}
+
+function startStrike() {
+  if (!callId) return;
+  $('#strikePanel').classList.add('hidden'); $('#decoyPanel').classList.remove('hidden');
+  const log = $('#decoyLog');
+  const say = (who, t) => { log.append(h('p', {}, h('b', {}, who + ': '), t)); log.scrollTop = log.scrollHeight; };
+  say('Riposte', 'Connecting the AI decoy…');
+  decoyWs = new WebSocket(wsURL(`/ws/decoy?call_id=${callId}`));
+  decoyWs.binaryType = 'arraybuffer';
+  decoyWs.onmessage = (e) => {
+    if (typeof e.data !== 'string') { playPcm24(e.data); return; }
+    const ev = JSON.parse(e.data);
+    if (ev.type === 'decoy_ready') say('Riposte', 'AI is on the call. You can stay silent.');
+    else if (ev.type === 'decoy_heard') say('Caller', ev.text);
+    else if (ev.type === 'decoy_said') say('AI (as Ramesh)', ev.text);
+    else if (ev.type === 'interrupted') { playEndCtx = 0; playEnd = 0; if (playCtx) { playCtx.close(); playCtx = null; } }
+    else if (ev.type === 'error') say('Riposte', ev.message);
+    else if (ev.type === 'decoy_progress') renderChecklist(ev);
+    else if (ev.type === 'decoy_done') {
+      renderChecklist(ev);
+      const d = $('#decoyDone'); d.classList.remove('hidden');
+      d.replaceChildren(h('div', { class: 'big' }, '✅ ' + ev.reason + ': hang up now'),
+        h('div', { class: 'small' }, 'The AI is saying goodbye. End the call on your phone, then press “End call & get my report”.'));
+    }
+  };
+  decoyWs.onclose = () => { say('Riposte', 'AI has left the call.'); decoyWs = null; };
+}
+
+$('#startMic').onclick = startMic;
+$('#startDemo').onclick = runDemo;
+$('#startType').onclick = () => connect('text');
+$('#typeSend').onclick = () => { sendLine($('#typeLine').value); $('#typeLine').value = ''; };
+$('#typeLine').addEventListener('keydown', e => { if (e.key === 'Enter') $('#typeSend').click(); });
+$('#strikeBtn').onclick = startStrike;
+$('#decoySend').onclick = () => { const t = $('#decoyType').value; if (decoyWs && t) decoyWs.send(JSON.stringify({ type: 'text', text: t })); $('#decoyType').value = ''; };
+$('#decoyType').addEventListener('keydown', e => { if (e.key === 'Enter') $('#decoySend').click(); });
+$('#decoyStop').onclick = () => decoyWs && decoyWs.send(JSON.stringify({ type: 'end' }));
+// minimal, injection-safe markdown: headings, numbered and bullet lists, paragraphs (text nodes only)
+function renderMd(md) {
+  const box = h('div'); let list = null;
+  for (const raw of md.split('\n')) {
+    const line = raw.trim();
+    if (!line) { list = null; continue; }
+    if (line.startsWith('## ')) { list = null; box.append(h('h3', { style: 'margin:12px 0 4px' }, line.slice(3))); continue; }
+    const m = line.match(/^(\d+\.|[-*])\s+(.*)$/);
+    if (m) { if (!list) { list = h(m[1].endsWith('.') ? 'ol' : 'ul', { style: 'margin:4px 0;padding-left:20px' }); box.append(list); } list.append(h('li', {}, m[2].replace(/\*\*/g, ''))); continue; }
+    list = null; box.append(h('p', { style: 'margin:4px 0' }, line.replace(/\*\*/g, '')));
+  }
+  return box;
+}
+async function showReport() {
+  if (!callId) return;
+  $('#reportPanel').classList.remove('hidden');
+  $('#reportPanel').append(h('a', { class: 'btn primary', href: `/report?call=${callId}`, target: '_blank', style: 'width:100%;margin-top:10px' }, '📄 Open full report to review, save as PDF and submit'));
+  try {
+    const r = await fetch(`/api/case/${callId}/report`, { method: 'POST' }).then(r => r.json());
+    $('#report').replaceChildren(renderMd(r.report || 'No report.'));
+    $('#reportBy').textContent = 'Written by ' + r.by + (r.tools_used?.length ? ' · tools: ' + r.tools_used.join(', ') : '');
+  } catch (e) { $('#report').textContent = 'Could not prepare the report. Call 1930 if you lost money.'; }
+}
+$('#endCall').onclick = () => {
+  ended = true;
+  if (ws) ws.send(JSON.stringify({ type: 'end' }));
+  if (micStream) micStream.getTracks().forEach(t => t.stop());
+  setConn('call ended'); $('#endCall').disabled = true;
+  $('#newCall').classList.remove('hidden');
+  setTimeout(() => { if (peak === 'calm') $('#calmEndPanel').classList.remove('hidden'); else showReport(); }, 1200);
+};
+$('#wantReportAnyway').onclick = () => { $('#calmEndPanel').classList.add('hidden'); showReport(); };
+// A fresh page load is the simplest reliable reset: it tears down the mic, audio contexts and all
+// on-screen call state at once, with the same guarantees as the user refreshing the page themselves.
+$('#newCall').onclick = () => { location.href = location.pathname + location.search; };
+if (new URLSearchParams(location.search).get('autodemo')) runDemo();
+if (!window.isSecureContext) $('#micHelp').textContent = 'Microphone needs HTTPS (or localhost).';
+</script>
+</body>
+</html>
